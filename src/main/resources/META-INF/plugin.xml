@@ -1,0 +1,36 @@
+<idea-plugin>
+    <id>com.ncviewer.idea</id>
+    <name>NC Viewer (IDEA)</name>
+    <vendor email="support@example.com">nc-view</vendor>
+    <description>Interactive 3D viewer for NC / G-code files.</description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="com.ncviewer.idea.settings.NcViewerSettings"/>
+
+        <fileType
+                name="G-code"
+                language="GCode"
+                implementationClass="com.ncviewer.idea.lang.NcFileType"
+                extensions="nc;gcode;cnc"/>
+
+        <toolWindow
+                id="NC Viewer"
+                anchor="right"
+                icon="AllIcons.Actions.Preview"
+                factoryClass="com.ncviewer.idea.toolwindow.NcViewerToolWindowFactory"/>
+    </extensions>
+
+    <actions>
+        <action
+                id="NcViewer.Open"
+                class="com.ncviewer.idea.actions.OpenNcViewerAction"
+                text="Open NC Viewer"
+                description="Preview the active G-code file in the NC Viewer panel">
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt V"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

@@ -11,10 +11,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: nc_viewer_idea
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4

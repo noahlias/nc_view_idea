@@ -3,3 +3,8 @@
 
 # Ignore Gradle build output directory
 build
+
+# IntelliJ Platform cache directory
+.intellijPlatform
+
+.DS_Store

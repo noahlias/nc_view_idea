@@ -15,16 +15,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Temurin JDK 17
+      - name: Set up Temurin JDK 21
+        id: setup-jdk
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build plugin
+        env:
+          ORG_GRADLE_JAVA_HOME: ${{ steps.setup-jdk.outputs.path }}
         run: ./gradlew --scan --stacktrace buildPlugin
 
       - name: Upload distribution artifact

@@ -12,6 +12,8 @@ repositories {
     mavenCentral()
     intellijPlatform {
         defaultRepositories()
+        intellijDependencies()
+        instrumentationTools()
     }
 }
 
@@ -32,6 +34,7 @@ dependencies {
             intellijIdeaCommunity("2024.2")
         }
         bundledPlugin("com.intellij.java")
+        instrumentationTools()
     }
 }
 

@@ -2,6 +2,7 @@ package com.ncviewer.idea.lang
 
 import com.intellij.openapi.fileTypes.LanguageFileType
 import javax.swing.Icon
+import javax.swing.ImageIcon
 
 object NcFileType : LanguageFileType(NcLanguage) {
     override fun getName(): String = "G-code"
@@ -10,5 +11,7 @@ object NcFileType : LanguageFileType(NcLanguage) {
 
     override fun getDefaultExtension(): String = "nc"
 
-    override fun getIcon(): Icon? = null
+    private val icon: Icon? = NcIcons.File
+
+    override fun getIcon(): Icon? = icon
 }

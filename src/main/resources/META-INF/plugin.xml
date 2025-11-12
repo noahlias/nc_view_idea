@@ -1,7 +1,8 @@
 <idea-plugin>
     <id>com.ncviewer.idea</id>
-    <name>NC Viewer (IDEA)</name>
+    <name>NC Viewer</name>
     <vendor email="support@example.com">nc-view</vendor>
+    <icon>META-INF/ncviewer-icon.svg</icon>
     <description>Interactive 3D viewer for NC / G-code files.</description>
 
     <depends>com.intellij.modules.platform</depends>

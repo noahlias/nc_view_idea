@@ -132,7 +132,7 @@ tasks.withType<PrepareSandboxTask>().configureEach {
 intellijPlatform {
     pluginConfiguration {
         id = "com.ncviewer.idea"
-        name = "NC Viewer (IDEA)"
+        name = "NC Viewer"
         version = project.version.toString()
         description = "Interactive 3D G-code viewer and editor helper for IntelliJ-based IDEs."
         vendor {

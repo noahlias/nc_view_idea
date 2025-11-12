@@ -12,4 +12,6 @@ class NcViewerLogToolWindowFactory : ToolWindowFactory, DumbAware {
         val content = ContentFactory.getInstance().createContent(component, "", false)
         toolWindow.contentManager.addContent(content)
     }
+
+    override fun shouldBeAvailable(project: Project): Boolean = false
 }

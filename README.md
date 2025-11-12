@@ -47,7 +47,9 @@ If the properties are left empty or point to an incompatible install, the build 
 
 ## Development Notes
 1. **Web Assets:** The viewer expects the same relative file paths as the VS Code extension. Copy updates from the root `media/` folder into `src/main/resources/ncviewer/media` to keep them in sync.
-2. **Message Bridge:** The JCEF layer injects a lightweight `acquireVsCodeApi` shim so the existing `media/index.html` script works unchanged. Kotlin-side messages mirror the `loadGCode`, `cursorPositionChanged`, `contentChanged`, and `highlightLine` contract.
+2. **Message Bridge:** Instead of relying on `JBCefJSQuery`, the viewer now talks to the host over a local `http://127.0.0.1:<port>/ncbridge` loopback server. Kotlin pushes `loadGCode`/`contentChanged` payloads into the server, and the Three.js page polls + posts JSON so the contract (`loadGCode`, `cursorPositionChanged`, `contentChanged`, `highlightLine`, `bridgeDebug`) stays unchanged but is far more reliable. The webview also auto-syncs its light/dark palette to `prefers-color-scheme` (or any `data-theme` override injected by the host) so it blends into the IDE theme automatically.
+
+> Verbose bridge logging is automatically enabled when `-Didea.is.internal=true`; for production builds leave it unset (or pass `-Dncviewer.verboseLog=false`) to suppress per-message log spam.
 3. **Settings:** `NcViewerSettings` stores the `excludeCodes` array. A UI is not implemented yet; values can be tweaked via the `NcViewerSettings` service for now.
 4. **IDE Compatibility:** Because the tool window uses `JBCefBrowser`, the target IDE must ship with JCEF (true for 2020.3+ builds). Stick to 2024.2+ until we broaden testing.
 

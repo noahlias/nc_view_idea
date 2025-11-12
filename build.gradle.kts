@@ -2,6 +2,7 @@ import java.io.File
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.jetbrains.intellij.platform.gradle.tasks.RunIdeTask
+import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
 
 plugins {
     kotlin("jvm") version "1.9.24"
@@ -107,6 +108,24 @@ tasks.named("processResources") {
 
 tasks.withType<RunIdeTask>().configureEach {
     systemProperties["idea.is.internal"] = "true"
+}
+
+tasks.withType<PrepareSandboxTask>().configureEach {
+    val disabledPlugins = listOf(
+        "com.intellij.gradle",
+        "org.jetbrains.idea.gradle.dsl"
+    )
+    doLast {
+        val disabledFile = sandboxConfigDirectory.file("disabled_plugins.txt").get().asFile
+        disabledFile.parentFile.mkdirs()
+        val existing = if (disabledFile.exists()) disabledFile.readLines() else emptyList()
+        val merged = (existing + disabledPlugins)
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .toSet()
+            .sorted()
+        disabledFile.writeText(merged.joinToString("\n"))
+    }
 }
 
 intellijPlatform {

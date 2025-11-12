@@ -1,11 +1,14 @@
 package com.ncviewer.idea.highlight
 
 import com.intellij.lexer.LexerBase
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.psi.TokenType
 import com.intellij.psi.tree.IElementType
 import kotlin.math.min
+import com.ncviewer.idea.log.NcViewerLogConfig
 
 class NcLexer : LexerBase() {
+    private val logger = logger<NcLexer>()
     private var buffer: CharSequence = ""
     private var bufferEnd: Int = 0
     private var tokenStart: Int = 0
@@ -17,6 +20,9 @@ class NcLexer : LexerBase() {
         this.tokenStart = startOffset
         this.tokenEnd = startOffset
         this.bufferEnd = endOffset
+        if (NcViewerLogConfig.lexerDebug) {
+            logger.info("NcLexer.start range=[$startOffset,$endOffset) text='${buffer.subSequence(startOffset, endOffset)}'")
+        }
         advance()
     }
 
@@ -31,6 +37,9 @@ class NcLexer : LexerBase() {
     override fun advance() {
         if (tokenEnd >= bufferEnd) {
             tokenType = null
+            if (NcViewerLogConfig.lexerDebug) {
+                logger.info("NcLexer.advance reached EOF")
+            }
             return
         }
 
@@ -65,6 +74,7 @@ class NcLexer : LexerBase() {
         }
         tokenEnd = min(i, bufferEnd)
         tokenType = NcTokenTypes.COMMENT
+        logToken()
     }
 
     private fun consumeWhitespace() {
@@ -74,6 +84,7 @@ class NcLexer : LexerBase() {
         }
         tokenEnd = i
         tokenType = TokenType.WHITE_SPACE
+        logToken()
     }
 
     private fun consumeCommand() {
@@ -83,6 +94,7 @@ class NcLexer : LexerBase() {
         }
         tokenEnd = i
         tokenType = NcTokenTypes.COMMAND
+        logToken()
     }
 
     private fun consumeCoordinate() {
@@ -97,6 +109,7 @@ class NcLexer : LexerBase() {
         }
         tokenEnd = i
         tokenType = NcTokenTypes.COORDINATE
+        logToken()
     }
 
     private fun consumeNumber() {
@@ -111,6 +124,7 @@ class NcLexer : LexerBase() {
         }
         tokenEnd = i
         tokenType = NcTokenTypes.NUMBER
+        logToken()
     }
 
     private fun consumeWord() {
@@ -120,6 +134,7 @@ class NcLexer : LexerBase() {
         }
         tokenEnd = i
         tokenType = NcTokenTypes.WORD
+        logToken()
     }
 
     private fun Char.isWhitespace(): Boolean = this == ' ' || this == '\t' || this == '\n' || this == '\r'
@@ -136,5 +151,11 @@ class NcLexer : LexerBase() {
             'X', 'Y', 'Z', 'I', 'J', 'K', 'A', 'B', 'C', 'F', 'S', 'P', 'R', 'E' -> true
             else -> false
         }
+    }
+
+    private fun logToken() {
+        if (!NcViewerLogConfig.lexerDebug) return
+        val text = buffer.subSequence(tokenStart, tokenEnd)
+        logger.info("token type=$tokenType range=[$tokenStart,$tokenEnd) text='$text'")
     }
 }

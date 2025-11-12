@@ -43,13 +43,13 @@ jobs:
         if: steps.build-mode.outputs.mode == 'verify'
         env:
           ORG_GRADLE_JAVA_HOME: ${{ steps.setup-jdk.outputs.path }}
-        run: ./gradlew --stacktrace check
+        run: ./gradlew --stacktrace check -Dncviewer.verboseLog=false
 
       - name: Build plugin
         if: steps.build-mode.outputs.mode == 'release'
         env:
           ORG_GRADLE_JAVA_HOME: ${{ steps.setup-jdk.outputs.path }}
-        run: ./gradlew --scan --stacktrace buildPlugin
+        run: ./gradlew --scan --stacktrace buildPlugin -Dncviewer.verboseLog=false
 
       - name: Upload distribution artifact
         if: steps.build-mode.outputs.mode == 'release'

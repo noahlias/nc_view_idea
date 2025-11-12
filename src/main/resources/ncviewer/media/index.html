@@ -6,10 +6,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta charset="UTF-8" />
   <style>
+    :root {
+      --nc-bg: #282a36;
+      --nc-fg: #f8f8f2;
+      --nc-panel-bg: rgba(40, 42, 54, 0.9);
+      --nc-panel-border: #44475a;
+      --nc-slider-track: #44475a;
+      --nc-slider-thumb: #bd93f9;
+      --nc-slider-thumb-border: #f8f8f2;
+    }
+
+    :root[data-theme="light"] {
+      --nc-bg: #f5f7fb;
+      --nc-fg: #1f2430;
+      --nc-panel-bg: rgba(245, 247, 251, 0.9);
+      --nc-panel-border: #d0d7e2;
+      --nc-slider-track: #d0d7e2;
+      --nc-slider-thumb: #748ffc;
+      --nc-slider-thumb-border: #f5f7fb;
+    }
+
      html,
      body {
-      background-color: #282a36;
-      color: #f8f8f2;
+      background-color: var(--nc-bg);
+      color: var(--nc-fg);
       font-family: var(--idea-font-family, var(--vscode-font-family, 'JetBrains Mono', sans-serif));
       margin: 0;
       padding: 0;
@@ -25,8 +45,8 @@
     .viewer {
       width: 100%;
       height: 100%;
-      background: #282a36;
-      color: #f8f8f2;
+      background: var(--nc-bg);
+      color: var(--nc-fg);
       position: relative;
       display: flex;
       flex-direction: column;
@@ -42,13 +62,13 @@
       flex-direction: column;
       align-items: flex-start;
       padding: 8px 12px;
-      background-color: rgba(40, 42, 54, 0.9);
-      color: #f8f8f2;
+      background-color: var(--nc-panel-bg);
+      color: var(--nc-fg);
       font-family: var(--idea-font-family, 'JetBrains Mono', monospace);
       font-size: 0.85rem;
-      border: 1px solid #44475a;
+      border: 1px solid var(--nc-panel-border);
       border-radius: 4px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     }
 
     .viewer-info span {
@@ -62,11 +82,11 @@
       transform: translateX(-50%);
       width: 60%;
       height: 10px;
-      background-color: #44475a;
+      background-color: var(--nc-slider-track);
       -webkit-appearance: none;
       appearance: none;
       border-radius: 5px;
-      outline-color: var(--vscode-focusBorder);
+      outline-color: var(--vscode-focusBorder, #568af2);
       z-index: 1;
     }
 
@@ -75,8 +95,8 @@
       appearance: none;
       width: 20px;
       height: 20px;
-      background-color: #bd93f9;
-      border: 1px solid #f8f8f2;
+      background-color: var(--nc-slider-thumb);
+      border: 1px solid var(--nc-slider-thumb-border);
       border-radius: 50%;
       cursor: pointer;
     }
@@ -84,15 +104,36 @@
     #viewerSlider::-moz-range-thumb {
       width: 20px;
       height: 20px;
-      background-color: #bd93f9;
-      border: 1px solid #f8f8f2;
+      background-color: var(--nc-slider-thumb);
+      border: 1px solid var(--nc-slider-thumb-border);
       border-radius: 50%;
       cursor: pointer;
     }
   </style>
+  <script>
+    (function () {
+      const applyTheme = (isLight) => {
+        if (document.documentElement.hasAttribute('data-theme')) {
+          return;
+        }
+        document.documentElement.dataset.theme = isLight ? 'light' : 'dark';
+      };
+      const media = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)');
+      if (media) {
+        applyTheme(media.matches);
+        if (typeof media.addEventListener === 'function') {
+          media.addEventListener('change', (event) => applyTheme(event.matches));
+        } else if (typeof media.addListener === 'function') {
+          media.addListener((event) => applyTheme(event.matches));
+        }
+      } else {
+        applyTheme(false);
+      }
+    })();
+  </script>
 </head>
 
-<body class="dark">
+<body>
 
   <main>
     <div class="viewer" id="viewer">

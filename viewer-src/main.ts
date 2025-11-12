@@ -11,6 +11,8 @@ type IdeaBridge = {
 declare global {
   interface Window {
     ideaBridge?: IdeaBridge;
+    __NC_HTTP_ENDPOINT?: string;
+    __NC_HTTP_TOKEN?: string;
   }
 }
 
@@ -46,18 +48,96 @@ declare global {
     }
   };
 
-  const waitForIdeaBridge = (callback: () => void) => {
-    if (
-      window.ideaBridge &&
-      typeof window.ideaBridge.postMessage === "function" &&
-      typeof window.ideaBridge.addMessageListener === "function"
-    ) {
-      ideaBridge = window.ideaBridge;
+  const sleep = (ms: number) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
+  const createHttpBridge = async (): Promise<IdeaBridge> => {
+    const endpoint = window.__NC_HTTP_ENDPOINT;
+    const token = window.__NC_HTTP_TOKEN;
+    if (!endpoint || !token) {
+      throw new Error("HTTP bridge configuration missing");
+    }
+
+    const listeners = new Set<(payload: unknown) => void>();
+    let lastVersion = 0;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-Ncviewer-Token": token,
+    };
+
+    const notifyListeners = (payload: unknown) => {
+      listeners.forEach((listener) => {
+        try {
+          listener(payload);
+        } catch (error) {
+          console.error("HTTP bridge listener error", error);
+        }
+      });
+    };
+
+    const pollLoop = async () => {
+      while (true) {
+        try {
+          const response = await fetch(`${endpoint}/poll?after=${lastVersion}`, {
+            method: "GET",
+            headers,
+            cache: "no-store",
+          });
+          if (response.status === 200) {
+            const data = await response.json();
+            lastVersion = data.version;
+            let payload: unknown = data.message;
+            if (typeof payload === "string") {
+              try {
+                payload = JSON.parse(payload);
+              } catch (error) {
+                console.warn("Failed to parse payload JSON", error);
+              }
+            }
+            notifyListeners(payload);
+            await sleep(10);
+            continue;
+          }
+          await sleep(250);
+        } catch (error) {
+          console.error("HTTP bridge poll error", error);
+          await sleep(1000);
+        }
+      }
+    };
+
+    pollLoop().catch((error) => console.error("HTTP bridge poll loop error", error));
+
+    return {
+      postMessage(message: unknown) {
+        const payload = typeof message === "string" ? message : JSON.stringify(message);
+        fetch(`${endpoint}/event`, {
+          method: "POST",
+          headers,
+          body: payload,
+        }).catch((error) => console.error("HTTP bridge post error", error));
+      },
+      addMessageListener(handler: (payload: unknown) => void) {
+        listeners.add(handler);
+        return () => listeners.delete(handler);
+      },
+    };
+  };
+
+  const bootstrapBridge = async (callback: () => void) => {
+    try {
+      ideaBridge = await createHttpBridge();
+      window.ideaBridge = ideaBridge;
       flushBridgeLogQueue();
-      emitBridgeLog("ideaBridge connected");
+      emitBridgeLog("HTTP bridge connected");
       callback();
-    } else {
-      setTimeout(() => waitForIdeaBridge(callback), 50);
+    } catch (error) {
+      console.error("Failed to initialize HTTP bridge", error);
+      await sleep(1000);
+      bootstrapBridge(callback);
     }
   };
 
@@ -242,7 +322,8 @@ declare global {
     }
 
     if (startIdx !== -1 && endIdx !== -1) {
-      slider.value = String(endIdx);
+      const maxValue = parseInt(slider.max, 10);
+      slider.value = String(Math.min(endIdx, Number.isNaN(maxValue) ? endIdx : maxValue));
       selectLineSegments(startIdx, endIdx);
     }
   }
@@ -315,9 +396,17 @@ declare global {
     lineSegmentsMesh = new THREE.LineSegments(geometry, material);
     segmentsGroup.add(lineSegmentsMesh);
 
+    const segmentCount = Math.max(0, movements.length - 1);
+    slider.disabled = segmentCount === 0;
     slider.value = "0";
-    slider.max = String(movements.length - 1);
-    selectLineSegments(movements.length, movements.length);
+    slider.max = segmentCount === 0 ? "0" : String(segmentCount - 1);
+
+    if (segmentCount > 0) {
+      selectLineSegments(0, 0);
+    } else {
+      clearSelection();
+    }
+
     if (isInitialLoad) {
       resetCamera();
     }
@@ -328,26 +417,21 @@ declare global {
   const registerSliderHandler = () => {
     slider.addEventListener("input", (event) => {
       const value = parseInt((event.target as HTMLInputElement).value, 10);
+      const segmentCount = Math.max(0, movements.length - 1);
 
-      if (value >= 0 && value < movements.length - 1) {
-        const startIdx = value;
-        const endIdx = value;
-        selectLineSegments(startIdx, endIdx);
-        if (
-          movements[value + 1] &&
-          movements[value + 1].lineNumber !== undefined
-        ) {
-          const lineNumber = movements[value + 1].lineNumber;
-          emitBridgeLog(`slider highlight line=${lineNumber}`);
-          if (ideaBridge) {
-            ideaBridge.postMessage({
-              type: "highlightLine",
-              lineNumber: lineNumber,
-            });
-          } else {
-            emitBridgeLog("ideaBridge missing when sending highlightLine");
-          }
-        }
+      if (Number.isNaN(value) || value < 0 || value > segmentCount - 1) {
+        return;
+      }
+
+      selectLineSegments(value, value);
+
+      const movement = movements[value + 1];
+      if (movement && movement.lineNumber !== undefined) {
+        emitBridgeLog(`slider highlight line=${movement.lineNumber}`);
+        ideaBridge?.postMessage({
+          type: "highlightLine",
+          lineNumber: movement.lineNumber,
+        });
       }
     });
   };
@@ -404,20 +488,34 @@ declare global {
     document.getElementById("posZ")!.textContent = "0.000";
   }
 
-  const DRACULA_COLORS = {
-    feed: 0x50fa7b,
-    rapid: 0xff5555,
-    selected: 0xff79c6,
-    afterSelected: 0x6272a4,
-    background: 0x282a36,
-  };
+  const COLOR_THEMES = {
+    dark: {
+      feed: 0x50fa7b,
+      rapid: 0xff5555,
+      selected: 0xff79c6,
+      afterSelected: 0x6272a4,
+      background: 0x282a36,
+    },
+    light: {
+      feed: 0x2f9e44,
+      rapid: 0xd7263d,
+      selected: 0x5f3dc4,
+      afterSelected: 0x94a2b8,
+      background: 0xf5f7fb,
+    },
+  } as const;
 
   let colors = {
-    selectedColor: DRACULA_COLORS.selected,
-    feedColor: DRACULA_COLORS.feed,
-    rapidColor: DRACULA_COLORS.rapid,
-    afterSelColor: DRACULA_COLORS.afterSelected,
+    selectedColor: COLOR_THEMES.dark.selected,
+    feedColor: COLOR_THEMES.dark.feed,
+    rapidColor: COLOR_THEMES.dark.rapid,
+    afterSelColor: COLOR_THEMES.dark.afterSelected,
   };
+
+  function getActivePalette() {
+    const theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+    return COLOR_THEMES[theme];
+  }
 
   function animate() {
     requestAnimationFrame(animate);
@@ -446,15 +544,16 @@ declare global {
   });
 
   function update3DViewColors() {
-    colors.feedColor = DRACULA_COLORS.feed;
-    colors.rapidColor = DRACULA_COLORS.rapid;
-    colors.selectedColor = DRACULA_COLORS.selected;
-    colors.afterSelColor = DRACULA_COLORS.afterSelected;
+    const palette = getActivePalette();
+    colors.feedColor = palette.feed;
+    colors.rapidColor = palette.rapid;
+    colors.selectedColor = palette.selected;
+    colors.afterSelColor = palette.afterSelected;
 
     startPointMaterial.color.setHex(colors.feedColor);
     endPointMaterial.color.setHex(colors.rapidColor);
 
-    renderer.setClearColor(DRACULA_COLORS.background);
+    renderer.setClearColor(palette.background);
 
     if (lineSegmentsMesh) {
       selectLineSegments(parseInt(slider.value, 10), parseInt(slider.value, 10));
@@ -472,13 +571,14 @@ declare global {
 
   const observer = new MutationObserver((mutationsList) => {
     for (const mutation of mutationsList) {
-      if (mutation.type === "attributes" && mutation.attributeName === "class") {
+      if (mutation.type === "attributes") {
         update3DViewColors();
         break;
       }
     }
   });
   observer.observe(document.body, { attributes: true });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   function initializeViewer() {
     emitBridgeLog("initializeViewer invoked");
@@ -507,7 +607,7 @@ declare global {
     }
   };
 
-  waitForIdeaBridge(startOnceBridgeReady);
+  bootstrapBridge(startOnceBridgeReady);
 
   function resetCamera() {
     let box = new THREE.Box3().setFromObject(segmentsGroup);
@@ -543,8 +643,23 @@ declare global {
     addAxisLines(box);
   }
 
+  function clearSelection() {
+    startPointMesh.visible = false;
+    endPointMesh.visible = false;
+    document.getElementById("posX")!.textContent = "0.000";
+    document.getElementById("posY")!.textContent = "0.000";
+    document.getElementById("posZ")!.textContent = "0.000";
+  }
+
   function selectLineSegments(startIdx: number, endIdx: number) {
-    if (!lineSegmentsMesh) return;
+    if (!lineSegmentsMesh || movements.length < 2) {
+      clearSelection();
+      return;
+    }
+
+    const maxSegmentIndex = movements.length - 2;
+    const clampedStart = Math.max(0, Math.min(startIdx, maxSegmentIndex));
+    const clampedEnd = Math.max(clampedStart, Math.min(endIdx, maxSegmentIndex));
 
     const colorsAttr = lineSegmentsMesh.geometry.getAttribute("color") as THREE.BufferAttribute;
     const color = new THREE.Color();
@@ -555,9 +670,9 @@ declare global {
 
     for (let i = 0; i < colorsAttr.count; i += 2) {
       const segmentIndex = i / 2;
-      if (segmentIndex >= startIdx && segmentIndex <= endIdx) {
+      if (segmentIndex >= clampedStart && segmentIndex <= clampedEnd) {
         color.setHex(selectedColor);
-      } else if (segmentIndex > endIdx) {
+      } else if (segmentIndex > clampedEnd) {
         color.setHex(afterSelectedColor);
       } else {
         color.setHex(baseColor);
@@ -570,16 +685,16 @@ declare global {
 
     colorsAttr.needsUpdate = true;
 
-    if (startIdx < movements.length - 1) {
+    if (clampedStart < movements.length - 1) {
       const startPos = new THREE.Vector3(
-        movements[startIdx].X,
-        movements[startIdx].Y,
-        movements[startIdx].Z,
+        movements[clampedStart].X,
+        movements[clampedStart].Y,
+        movements[clampedStart].Z,
       );
       const endPos = new THREE.Vector3(
-        movements[endIdx + 1].X,
-        movements[endIdx + 1].Y,
-        movements[endIdx + 1].Z,
+        movements[clampedEnd + 1].X,
+        movements[clampedEnd + 1].Y,
+        movements[clampedEnd + 1].Z,
       );
 
       startPointMesh.position.copy(startPos);
@@ -588,15 +703,11 @@ declare global {
       startPointMesh.visible = true;
       endPointMesh.visible = true;
 
-      document.getElementById("posX")!.textContent = movements[endIdx + 1].X.toFixed(3);
-      document.getElementById("posY")!.textContent = movements[endIdx + 1].Y.toFixed(3);
-      document.getElementById("posZ")!.textContent = movements[endIdx + 1].Z.toFixed(3);
+      document.getElementById("posX")!.textContent = movements[clampedEnd + 1].X.toFixed(3);
+      document.getElementById("posY")!.textContent = movements[clampedEnd + 1].Y.toFixed(3);
+      document.getElementById("posZ")!.textContent = movements[clampedEnd + 1].Z.toFixed(3);
     } else {
-      startPointMesh.visible = false;
-      endPointMesh.visible = false;
-      document.getElementById("posX")!.textContent = "0.000";
-      document.getElementById("posY")!.textContent = "0.000";
-      document.getElementById("posZ")!.textContent = "0.000";
+      clearSelection();
     }
   }
 })();

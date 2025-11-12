@@ -14,16 +14,13 @@ import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.project.Project
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBuilder
-import com.intellij.ui.jcef.JBCefClient
-import com.intellij.ui.jcef.JBCefJSQuery
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.util.ui.JBUI
+import com.ncviewer.idea.bridge.NcViewerHttpBridge
+import com.ncviewer.idea.log.NcViewerLogConfig
 import com.ncviewer.idea.log.NcViewerLogService
 import com.ncviewer.idea.settings.NcViewerSettings
 import com.ncviewer.idea.util.MediaExtractor
-import org.cef.browser.CefBrowser
-import org.cef.browser.CefFrame
-import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.BorderLayout
 import java.nio.file.Files
 import javax.swing.JComponent
@@ -34,10 +31,8 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private val logger = logger<NcViewerPanel>()
     private val logService = NcViewerLogService.getInstance(project)
     private val gson = Gson()
-    private val devToolsFlag = ensureDevToolsContextMenuSystemProperty()
     private val browser: JBCefBrowser = JBCefBrowserBuilder().setUrl("about:blank").build()
-    private val client: JBCefClient = browser.jbCefClient
-    private val jsBridge = JBCefJSQuery.create(browser)
+    private val httpBridge = NcViewerHttpBridge(logService)
 
     private val rootPanel = JPanel(BorderLayout()).apply {
         border = JBUI.Borders.empty()
@@ -51,33 +46,18 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private var caretListener: CaretListener? = null
     private var documentListener: DocumentListener? = null
     private var isWebviewReady = false
-    private val pendingMessages = mutableListOf<String>()
 
     init {
         logger.info("Initializing NcViewerPanel")
         logService.log("NcViewerPanel: initializing")
 
+        ensureDevToolsContextMenuSystemProperty()
         enableJcefDevToolsContextMenu()
-        jsBridge.addHandler { payload ->
-            logger.debug("Received JS bridge payload: ${payload.take(200)}")
-            logService.log("Bridge message from webview: ${payload.take(200)}")
+        httpBridge.addIncomingListener { payload ->
+            logger.debug("HTTP bridge payload: ${payload.take(200)}")
+            logService.log("HTTP bridge payload: ${payload.take(200)}")
             handleIncomingMessage(payload)
-            null
         }
-
-        client.addLoadHandler(
-            object : CefLoadHandlerAdapter() {
-                override fun onLoadEnd(browser: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
-                    if (browser?.url?.startsWith("file:") == true && frame != null) {
-                        val url = browser?.url
-                        logger.info("Page load finished for $url – injecting bridge")
-                        logService.log("NcViewerPanel: page load finished url=$url")
-                        injectBridge(frame)
-                    }
-                }
-            },
-            browser.cefBrowser,
-        )
 
         loadViewerAssets()
     }
@@ -147,10 +127,11 @@ class NcViewerPanel(private val project: Project) : Disposable {
         val bundleUrl = bundleFile.toUri().toString()
         val htmlWithBundle = html.replace("__BUNDLE_PLACEHOLDER__", bundleUrl)
         val patchedFile = mediaRoot.resolve("index_patched.html")
-        Files.writeString(
-            patchedFile,
-            BRIDGE_SNIPPET + "\n" + htmlWithBundle,
+        val htmlWithBridgeConfig = htmlWithBundle.replaceFirst(
+            "<head>",
+            "<head>\n${httpBridge.endpointScript()}",
         )
+        Files.writeString(patchedFile, htmlWithBridgeConfig)
         browser.loadURL(patchedFile.toUri().toString())
     }
 
@@ -180,55 +161,14 @@ class NcViewerPanel(private val project: Project) : Disposable {
         }
     }
 
-    private fun injectBridge(frame: CefFrame) {
-        val script = """
-            if (window.ideaBridge && window.ideaBridge.__intellijHooked) {
-              return;
-            }
-            (function() {
-              const listeners = new Set();
-              function notify(payload) {
-                listeners.forEach(function(listener) {
-                  try {
-                    listener(payload);
-                  } catch (error) {
-                    console.error('ideaBridge listener error', error);
-                  }
-                });
-                window.dispatchEvent(new MessageEvent('message', { data: payload }));
-              }
-              window.ideaBridge = {
-                __intellijHooked: true,
-                postMessage: function(message) {
-                  const payload = typeof message === 'string' ? message : JSON.stringify(message);
-                  ${jsBridge.inject("payload")}
-                },
-                addMessageListener: function(listener) {
-                  if (typeof listener !== 'function') {
-                    return function() {};
-                  }
-                  listeners.add(listener);
-                  return function() { listeners.delete(listener); };
-                },
-                _emit: function(message) {
-                  notify(message);
-                }
-              };
-            })();
-        """.trimIndent()
-        frame.executeJavaScript(script, frame.url, 0)
-    }
-
     private fun handleIncomingMessage(payload: String) {
         val message = gson.fromJson(payload, IncomingMessage::class.java)
         logger.debug("Incoming message: $message")
         when (message.type) {
             "webviewReady" -> {
                 isWebviewReady = true
-                val count = pendingMessages.size
-                logger.info("Webview signaled ready; flushing $count pending messages")
-                logService.log("NcViewerPanel: webviewReady pending=$count")
-                flushPendingMessages()
+                logger.info("Webview signaled ready via HTTP bridge")
+                logService.log("NcViewerPanel: webviewReady (http)")
                 currentEditor?.let { sendLoadGCode(it) }
             }
 
@@ -253,35 +193,11 @@ class NcViewerPanel(private val project: Project) : Disposable {
 
     private fun sendMessage(message: NcViewerMessage) {
         val json = gson.toJson(message)
-        if (isWebviewReady) {
-            logger.debug("Dispatching message immediately: ${message.type}")
-            logService.log("Dispatching message ${message.type}")
-            dispatchToWebview(json)
-        } else {
-            logger.debug("Queueing message while webview not ready: ${message.type}")
-            logService.log("Queue message ${message.type}")
-            pendingMessages += json
+        logger.debug("Publishing HTTP bridge message: ${message.type}")
+        if (NcViewerLogConfig.verbose) {
+            logService.log("Http bridge publish type=${message.type} len=${json.length}")
         }
-    }
-
-    private fun flushPendingMessages() {
-        if (pendingMessages.isEmpty()) return
-        logger.debug("Flushing ${pendingMessages.size} pending messages")
-        pendingMessages.forEach { dispatchToWebview(it) }
-        pendingMessages.clear()
-    }
-
-    private fun dispatchToWebview(jsonPayload: String) {
-        ApplicationManager.getApplication().invokeLater({
-            if (project.isDisposed) return@invokeLater
-            logger.trace("Executing script payload (len=${jsonPayload.length})")
-            logService.log("Executing JS payload len=${jsonPayload.length}")
-            browser.cefBrowser.mainFrame?.executeJavaScript(
-                "window.ideaBridge && window.ideaBridge._emit($jsonPayload);",
-                browser.cefBrowser.url,
-                0,
-            )
-        })
+        httpBridge.publish(json)
     }
 
     private fun detachListeners() {
@@ -299,7 +215,7 @@ class NcViewerPanel(private val project: Project) : Disposable {
 
     override fun dispose() {
         detachListeners()
-        jsBridge.dispose()
+        httpBridge.stop()
         browser.dispose()
         logger.info("NcViewerPanel disposed")
     }
@@ -321,7 +237,4 @@ class NcViewerPanel(private val project: Project) : Disposable {
         val debugMessage: String? = null,
     )
 
-    companion object {
-        private const val BRIDGE_SNIPPET = ""
-    }
 }

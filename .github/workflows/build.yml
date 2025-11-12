@@ -64,4 +64,3 @@ jobs:
         with:
           files: |
             build/distributions/*.zip
-            build/libs/*.jar

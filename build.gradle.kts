@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.ncviewer"
-version = "0.1.1"
+version = "0.1.2"
 
 val localIdePath = providers.gradleProperty("idea.local.path").orNull
 val localJbrHome = localIdePath

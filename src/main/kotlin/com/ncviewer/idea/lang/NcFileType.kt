@@ -1,6 +1,7 @@
 package com.ncviewer.idea.lang
 
 import com.intellij.openapi.fileTypes.LanguageFileType
+import com.ncviewer.idea.icons.NcIcons
 import javax.swing.Icon
 import javax.swing.ImageIcon
 

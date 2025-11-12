@@ -1,0 +1,13 @@
+{
+  "name": "nc-viewer-web",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build:viewer": "esbuild viewer-src/main.ts --bundle --format=iife --target=es2017 --outfile=src/main/resources/ncviewer/media/bundle.js --legal-comments=none"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "three": "^0.165.0",
+    "three-viewport-gizmo": "^2.2.0"
+  }
+}

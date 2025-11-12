@@ -1,49 +1,52 @@
-function parseGCode(
-  gcode,
+export function parseGCode(
+  gcode: string,
   segmentCount = 64,
-  excludeCodes = ["G10", "G90", "G53", "G30"],
+  excludeCodes: string[] = ["G10", "G90", "G53", "G30"],
 ) {
   const lines = gcode.split("\n");
-  const movements = [];
+  const movements: Array<{
+    command: string;
+    X: number;
+    Y: number;
+    Z: number;
+    feedrate: number | null;
+    lineNumber: number;
+  }> = [];
 
   let currentPosition = { X: 0, Y: 0, Z: 0 };
   let currentCommand = "G0";
-  let currentFeedrate = null;
-  let centerMode = null;
-  let motionMode = "absolute";
-  let plane = "G17";
+  let currentFeedrate: number | null = null;
+  let centerMode: "absolute" | "relative" | null = null;
+  let motionMode: "absolute" | "incremental" = "absolute";
+  let plane: "G17" | "G18" | "G19" = "G17";
 
   const FULL_CIRCLE_TOLERANCE = 1e-6;
   const firstArcDetected = { used: false };
 
-  const addMove = (command, x, y, z, feedrate, lineNumber) => {
+  const addMove = (
+    command: string,
+    x: number,
+    y: number,
+    z: number,
+    feedrate: number | null,
+    lineNumber: number,
+  ) => {
     movements.push({ command, X: x, Y: y, Z: z, feedrate, lineNumber });
   };
 
-  addMove(
-    currentCommand,
-    currentPosition.X,
-    currentPosition.Y,
-    currentPosition.Z,
-    currentFeedrate,
-    0,
-  );
+  addMove(currentCommand, currentPosition.X, currentPosition.Y, currentPosition.Z, currentFeedrate, 0);
 
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i].trim().toUpperCase();
     if (line.startsWith(";") || line.startsWith("(") || line.startsWith("%") || line === "") continue;
     line = line.replace(/;.*$/, "").trim();
 
-    if (
-      excludeCodes.some((code) =>
-        line.match(new RegExp(`\\b${code}(\\s|$)`, "i")),
-      )
-    ) {
+    if (excludeCodes.some((code) => line.match(new RegExp(`\\b${code}(\\s|$)`, "i")))) {
       continue;
     }
 
     const tokens = [...line.matchAll(/([A-Z])([-+]?[0-9]*\.?[0-9]+)/g)];
-    const params = {};
+    const params: Record<string, number[]> = {};
 
     for (const [, letter, value] of tokens) {
       if (!params[letter]) params[letter] = [];
@@ -57,7 +60,7 @@ function parseGCode(
       else if (g === 90) motionMode = "absolute";
       else if (g === 91) motionMode = "incremental";
       else if ([0, 1, 2, 3].includes(g)) currentCommand = `G${g}`;
-      else if ([17, 18, 19].includes(g)) plane = `G${g}`;
+      else if ([17, 18, 19].includes(g)) plane = `G${g}` as typeof plane;
     }
 
     if (params["F"]) currentFeedrate = params["F"][0];
@@ -72,17 +75,14 @@ function parseGCode(
 
     if (currentCommand === "G2" || currentCommand === "G3") {
       const target = { ...currentPosition };
-      if (x !== undefined)
-        target.X = motionMode === "absolute" ? x : currentPosition.X + x;
-      if (y !== undefined)
-        target.Y = motionMode === "absolute" ? y : currentPosition.Y + y;
-      if (z !== undefined)
-        target.Z = motionMode === "absolute" ? z : currentPosition.Z + z;
+      if (x !== undefined) target.X = motionMode === "absolute" ? x : currentPosition.X + x;
+      if (y !== undefined) target.Y = motionMode === "absolute" ? y : currentPosition.Y + y;
+      if (z !== undefined) target.Z = motionMode === "absolute" ? z : currentPosition.Z + z;
 
-      let axisA = "X",
-        axisB = "Y",
-        iKey = "I",
-        jKey = "J";
+      let axisA: "X" | "Y" | "Z" = "X";
+      let axisB: "X" | "Y" | "Z" = "Y";
+      let iKey: "I" | "J" | "K" = "I";
+      let jKey: "I" | "J" | "K" = "J";
       if (plane === "G18") {
         axisA = "Z";
         axisB = "X";
@@ -100,7 +100,8 @@ function parseGCode(
       const endA = target[axisA];
       const endB = target[axisB];
 
-      let centerA, centerB;
+      let centerA: number;
+      let centerB: number;
 
       if (rVal !== undefined) {
         const dx = endA - startA;
@@ -118,12 +119,8 @@ function parseGCode(
         centerB = my + dir * h * ny;
       } else {
         const relCenter = {
-          A:
-            currentPosition[axisA] +
-            (iKey === "I" ? iVal : jKey === "I" ? iVal : kVal),
-          B:
-            currentPosition[axisB] +
-            (jKey === "J" ? jVal : iKey === "J" ? jVal : kVal),
+          A: currentPosition[axisA] + (iKey === "I" ? iVal : jKey === "I" ? iVal : kVal),
+          B: currentPosition[axisB] + (jKey === "J" ? jVal : iKey === "J" ? jVal : kVal),
         };
         const absCenter = {
           A: iKey === "I" ? iVal : jKey === "I" ? iVal : kVal,
@@ -133,11 +130,11 @@ function parseGCode(
         if (!centerMode && !firstArcDetected.used) {
           const distRel = Math.abs(
             Math.hypot(startA - relCenter.A, startB - relCenter.B) -
-            Math.hypot(endA - relCenter.A, endB - relCenter.B),
+              Math.hypot(endA - relCenter.A, endB - relCenter.B),
           );
           const distAbs = Math.abs(
             Math.hypot(startA - absCenter.A, startB - absCenter.B) -
-            Math.hypot(endA - absCenter.A, endB - absCenter.B),
+              Math.hypot(endA - absCenter.A, endB - absCenter.B),
           );
           centerMode = distRel <= distAbs ? "relative" : "absolute";
           firstArcDetected.used = true;
@@ -153,64 +150,40 @@ function parseGCode(
       const radius = Math.hypot(startA - centerA, startB - centerB);
 
       let sweep = endAngle - startAngle;
-      const isFullCircle =
-        Math.hypot(endA - startA, endB - startB) < FULL_CIRCLE_TOLERANCE;
+      const isFullCircle = Math.hypot(endA - startA, endB - startB) < FULL_CIRCLE_TOLERANCE;
 
       if (isFullCircle) {
-        sweep = currentCommand === 'G2' ? -2 * Math.PI : 2 * Math.PI;
+        sweep = currentCommand === "G2" ? -2 * Math.PI : 2 * Math.PI;
       } else {
-        if (currentCommand === "G2" && sweep > 0) sweep -= 2 * Math.PI;
-        if (currentCommand === "G3" && sweep < 0) sweep += 2 * Math.PI;
-      }
-
-      const orthogonalAxis =
-        plane === "G17" ? "Z" : plane === "G18" ? "Y" : "X";
-      const dOrthogonal =
-        target[orthogonalAxis] - currentPosition[orthogonalAxis];
-
-      for (let j = 1; j <= segmentCount; j++) {
-        const angle = startAngle + (sweep * j) / segmentCount;
-        const ratio = j / segmentCount;
-        const point = { ...currentPosition };
-
-        point[axisA] = centerA + radius * Math.cos(angle);
-        point[axisB] = centerB + radius * Math.sin(angle);
-        point[orthogonalAxis] =
-          currentPosition[orthogonalAxis] + ratio * dOrthogonal;
-
-        if (
-          !Number.isNaN(point.X) &&
-          !Number.isNaN(point.Y) &&
-          !Number.isNaN(point.Z)
-        ) {
-          addMove("G1", point.X, point.Y, point.Z, currentFeedrate, i);
+        if (currentCommand === "G2" && sweep > 0) {
+          sweep -= 2 * Math.PI;
+        } else if (currentCommand === "G3" && sweep < 0) {
+          sweep += 2 * Math.PI;
         }
       }
 
-      currentPosition = { ...target };
-    } else if (
-      x !== undefined ||
-      y !== undefined ||
-      z !== undefined ||
-      gCodes.length > 0
-    ) {
-      const pos = { ...currentPosition };
-      if (x !== undefined)
-        pos.X = motionMode === "absolute" ? x : currentPosition.X + x;
-      if (y !== undefined)
-        pos.Y = motionMode === "absolute" ? y : currentPosition.Y + y;
-      if (z !== undefined)
-        pos.Z = motionMode === "absolute" ? z : currentPosition.Z + z;
-
-      if (
-        !Number.isNaN(pos.X) &&
-        !Number.isNaN(pos.Y) &&
-        !Number.isNaN(pos.Z)
-      ) {
-        currentPosition = { ...pos };
-        addMove(currentCommand, pos.X, pos.Y, pos.Z, currentFeedrate, i);
+      const segments = Math.max(3, segmentCount);
+      for (let s = 1; s <= segments; s++) {
+        const t = s / segments;
+        const angle = startAngle + sweep * t;
+        const next = { ...target };
+        next[axisA] = centerA + radius * Math.cos(angle);
+        next[axisB] = centerB + radius * Math.sin(angle);
+        addMove(currentCommand, next.X, next.Y, next.Z, currentFeedrate, i + 1);
       }
+
+      currentPosition = target;
+      addMove(currentCommand, currentPosition.X, currentPosition.Y, currentPosition.Z, currentFeedrate, i + 1);
+      continue;
     }
+
+    const target = { ...currentPosition };
+    if (x !== undefined) target.X = motionMode === "absolute" ? x : currentPosition.X + x;
+    if (y !== undefined) target.Y = motionMode === "absolute" ? y : currentPosition.Y + y;
+    if (z !== undefined) target.Z = motionMode === "absolute" ? z : currentPosition.Z + z;
+
+    currentPosition = target;
+    addMove(currentCommand, currentPosition.X, currentPosition.Y, currentPosition.Z, currentFeedrate, i + 1);
   }
 
   return movements;

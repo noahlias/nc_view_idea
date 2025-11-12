@@ -4,6 +4,10 @@
 # Ignore Gradle build output directory
 build
 
+# Node artifacts
+node_modules
+src/main/resources/ncviewer/media/bundle.js
+
 # IntelliJ Platform cache directory
 .intellijPlatform
 

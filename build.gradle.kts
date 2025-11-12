@@ -1,6 +1,7 @@
 import java.io.File
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.jetbrains.intellij.platform.gradle.tasks.RunIdeTask
 
 plugins {
     kotlin("jvm") version "1.9.24"
@@ -81,6 +82,31 @@ tasks.withType<KotlinCompile>().configureEach {
 tasks.wrapper {
     gradleVersion = "9.2"
     distributionType = Wrapper.DistributionType.BIN
+}
+
+val npmInstall by tasks.registering(Exec::class) {
+    workingDir = project.projectDir
+    val npmCommand = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) "npm.cmd" else "npm"
+    commandLine(npmCommand, "install")
+    inputs.file("package.json")
+    outputs.dir("node_modules")
+}
+
+val bundleViewer by tasks.registering(Exec::class) {
+    dependsOn(npmInstall)
+    workingDir = project.projectDir
+    val npmCommand = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) "npm.cmd" else "npm"
+    commandLine(npmCommand, "run", "build:viewer")
+    inputs.files(fileTree("viewer-src"))
+    outputs.file("src/main/resources/ncviewer/media/bundle.js")
+}
+
+tasks.named("processResources") {
+    dependsOn(bundleViewer)
+}
+
+tasks.withType<RunIdeTask>().configureEach {
+    systemProperties["idea.is.internal"] = "true"
 }
 
 intellijPlatform {

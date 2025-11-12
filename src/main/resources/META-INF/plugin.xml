@@ -21,6 +21,9 @@
         <syntaxHighlighterFactory
                 language="GCode"
                 implementationClass="com.ncviewer.idea.highlight.NcSyntaxHighlighterFactory"/>
+        <syntaxHighlighterFactory
+                filetype="G-code"
+                implementationClass="com.ncviewer.idea.highlight.NcSyntaxHighlighterFactory"/>
 
         <colorSettingsPage implementationClass="com.ncviewer.idea.highlight.NcColorSettingsPage"/>
 

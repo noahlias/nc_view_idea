@@ -16,6 +16,7 @@ import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBuilder
 import com.intellij.ui.jcef.JBCefClient
 import com.intellij.ui.jcef.JBCefJSQuery
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.util.ui.JBUI
 import com.ncviewer.idea.log.NcViewerLogService
 import com.ncviewer.idea.settings.NcViewerSettings
@@ -33,6 +34,7 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private val logger = logger<NcViewerPanel>()
     private val logService = NcViewerLogService.getInstance(project)
     private val gson = Gson()
+    private val devToolsFlag = ensureDevToolsContextMenuSystemProperty()
     private val browser: JBCefBrowser = JBCefBrowserBuilder().setUrl("about:blank").build()
     private val client: JBCefClient = browser.jbCefClient
     private val jsBridge = JBCefJSQuery.create(browser)
@@ -54,6 +56,8 @@ class NcViewerPanel(private val project: Project) : Disposable {
     init {
         logger.info("Initializing NcViewerPanel")
         logService.log("NcViewerPanel: initializing")
+
+        enableJcefDevToolsContextMenu()
         jsBridge.addHandler { payload ->
             logger.debug("Received JS bridge payload: ${payload.take(200)}")
             logService.log("Bridge message from webview: ${payload.take(200)}")
@@ -131,11 +135,49 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private fun loadViewerAssets() {
         val mediaRoot = MediaExtractor.ensureMediaExtracted()
         val indexFile = mediaRoot.resolve("index.html")
+        val bundleFile = mediaRoot.resolve("bundle.js")
+        val bundleExists = Files.exists(bundleFile)
+        logService.log("NcViewerPanel: bundle exists=$bundleExists at $bundleFile")
+        if (!bundleExists) {
+            logger.warn("bundle.js missing at $bundleFile")
+        }
         logger.info("Loading viewer assets from $indexFile")
         logService.log("NcViewerPanel: loading assets from $indexFile")
         val html = Files.readString(indexFile)
-        val patchedHtml = BRIDGE_SNIPPET + "\n" + html
-        browser.loadHTML(patchedHtml, indexFile.parent.toUri().toString())
+        val bundleUrl = bundleFile.toUri().toString()
+        val htmlWithBundle = html.replace("__BUNDLE_PLACEHOLDER__", bundleUrl)
+        val patchedFile = mediaRoot.resolve("index_patched.html")
+        Files.writeString(
+            patchedFile,
+            BRIDGE_SNIPPET + "\n" + htmlWithBundle,
+        )
+        browser.loadURL(patchedFile.toUri().toString())
+    }
+
+    private fun enableJcefDevToolsContextMenu() {
+        try {
+            val key = "ide.browser.jcef.contextMenu.devTools.enabled"
+            val registryValue = Registry.get(key)
+            if (!registryValue.asBoolean()) {
+                registryValue.setValue(true)
+                logService.log("NcViewerPanel: enabled $key")
+            }
+        } catch (t: Throwable) {
+            logger.warn("Failed to enable JCEF DevTools context menu", t)
+            logService.log("NcViewerPanel: failed to enable JCEF DevTools context menu: ${'$'}{t.message}")
+        }
+    }
+
+    private fun ensureDevToolsContextMenuSystemProperty() {
+        val keys = listOf(
+            "ide.browser.jcef.contextMenu.enabled",
+            "ide.browser.jcef.contextMenu.devTools.enabled",
+        )
+        keys.forEach { key ->
+            if (System.getProperty(key).isNullOrBlank()) {
+                System.setProperty(key, "true")
+            }
+        }
     }
 
     private fun injectBridge(frame: CefFrame) {

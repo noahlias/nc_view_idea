@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - master
+    tags:
+      - '*'
   pull_request:
   workflow_dispatch:
 
@@ -25,19 +27,36 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Determine build mode
+        id: build-mode
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=verify" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify (check + lint)
+        if: steps.build-mode.outputs.mode == 'verify'
+        env:
+          ORG_GRADLE_JAVA_HOME: ${{ steps.setup-jdk.outputs.path }}
+        run: ./gradlew --stacktrace check
+
       - name: Build plugin
+        if: steps.build-mode.outputs.mode == 'release'
         env:
           ORG_GRADLE_JAVA_HOME: ${{ steps.setup-jdk.outputs.path }}
         run: ./gradlew --scan --stacktrace buildPlugin
 
       - name: Upload distribution artifact
+        if: steps.build-mode.outputs.mode == 'release'
         uses: actions/upload-artifact@v4
         with:
           name: nc-viewer-idea
           path: build/distributions/*.zip
 
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.build-mode.outputs.mode == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: |

@@ -13,5 +13,4 @@ class NcViewerLogToolWindowFactory : ToolWindowFactory, DumbAware {
         toolWindow.contentManager.addContent(content)
     }
 
-    override fun shouldBeAvailable(project: Project): Boolean = false
 }

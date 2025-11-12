@@ -164,6 +164,12 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private fun handleIncomingMessage(payload: String) {
         val message = gson.fromJson(payload, IncomingMessage::class.java)
         logger.debug("Incoming message: $message")
+        val editor = currentEditor
+        if (editor == null || editor.isDisposed) {
+            logger.debug("Ignoring message ${message.type} because editor is null/disposed")
+            return
+        }
+
         when (message.type) {
             "webviewReady" -> {
                 isWebviewReady = true
@@ -180,6 +186,10 @@ class NcViewerPanel(private val project: Project) : Disposable {
 
     private fun moveCaretToLine(line: Int) {
         val editor = currentEditor ?: return
+        if (editor.isDisposed || project.isDisposed) {
+            logger.debug("Ignoring moveCaretToLine for disposed editor")
+            return
+        }
         val document = editor.document
         if (document.lineCount == 0) return
         val clampedLine = line.coerceIn(0, document.lineCount - 1)
@@ -211,6 +221,8 @@ class NcViewerPanel(private val project: Project) : Disposable {
             currentEditor?.document?.removeDocumentListener(listener)
         }
         documentListener = null
+        currentEditor = null
+        isWebviewReady = false
     }
 
     override fun dispose() {

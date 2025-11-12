@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.event.CaretEvent
@@ -16,6 +17,7 @@ import com.intellij.ui.jcef.JBCefBrowserBuilder
 import com.intellij.ui.jcef.JBCefClient
 import com.intellij.ui.jcef.JBCefJSQuery
 import com.intellij.util.ui.JBUI
+import com.ncviewer.idea.log.NcViewerLogService
 import com.ncviewer.idea.settings.NcViewerSettings
 import com.ncviewer.idea.util.MediaExtractor
 import org.cef.browser.CefBrowser
@@ -28,6 +30,8 @@ import javax.swing.JPanel
 
 class NcViewerPanel(private val project: Project) : Disposable {
 
+    private val logger = logger<NcViewerPanel>()
+    private val logService = NcViewerLogService.getInstance(project)
     private val gson = Gson()
     private val browser: JBCefBrowser = JBCefBrowserBuilder().setUrl("about:blank").build()
     private val client: JBCefClient = browser.jbCefClient
@@ -48,7 +52,11 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private val pendingMessages = mutableListOf<String>()
 
     init {
+        logger.info("Initializing NcViewerPanel")
+        logService.log("NcViewerPanel: initializing")
         jsBridge.addHandler { payload ->
+            logger.debug("Received JS bridge payload: ${payload.take(200)}")
+            logService.log("Bridge message from webview: ${payload.take(200)}")
             handleIncomingMessage(payload)
             null
         }
@@ -57,6 +65,9 @@ class NcViewerPanel(private val project: Project) : Disposable {
             object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(browser: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
                     if (browser?.url?.startsWith("file:") == true && frame != null) {
+                        val url = browser?.url
+                        logger.info("Page load finished for $url – injecting bridge")
+                        logService.log("NcViewerPanel: page load finished url=$url")
                         injectBridge(frame)
                     }
                 }
@@ -69,12 +80,15 @@ class NcViewerPanel(private val project: Project) : Disposable {
 
     fun attachEditor(editor: Editor) {
         if (currentEditor == editor) {
+            logger.debug("attachEditor called with same editor; re-sending load")
             sendLoadGCode(editor)
             return
         }
 
         detachListeners()
         currentEditor = editor
+        logger.info("Attached editor ${editor.document}")
+        logService.log("NcViewerPanel: attached editor fileType=${editor.virtualFile?.fileType?.name} path=${editor.virtualFile?.path}")
 
         caretListener = object : CaretListener {
             override fun caretPositionChanged(event: CaretEvent) {
@@ -99,6 +113,9 @@ class NcViewerPanel(private val project: Project) : Disposable {
     }
 
     private fun sendLoadGCode(editor: Editor) {
+        val length = editor.document.textLength
+        logger.info("Sending loadGCode message ($length chars)")
+        logService.log("NcViewerPanel: send loadGCode length=$length")
         sendMessage(
             NcViewerMessage(
                 type = "loadGCode",
@@ -114,6 +131,8 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private fun loadViewerAssets() {
         val mediaRoot = MediaExtractor.ensureMediaExtracted()
         val indexFile = mediaRoot.resolve("index.html")
+        logger.info("Loading viewer assets from $indexFile")
+        logService.log("NcViewerPanel: loading assets from $indexFile")
         val html = Files.readString(indexFile)
         val patchedHtml = BRIDGE_SNIPPET + "\n" + html
         browser.loadHTML(patchedHtml, indexFile.parent.toUri().toString())
@@ -121,27 +140,59 @@ class NcViewerPanel(private val project: Project) : Disposable {
 
     private fun injectBridge(frame: CefFrame) {
         val script = """
-            window.__ideaSetBridge && window.__ideaSetBridge(function (message) {
-              ${jsBridge.inject("JSON.stringify(message)")}
-            });
-            window.__ideaReceiveMessage = function (message) {
-              window.dispatchEvent(new MessageEvent("message", { data: message }));
-            };
-            window.__ideaFlushBridge && window.__ideaFlushBridge();
+            if (window.ideaBridge && window.ideaBridge.__intellijHooked) {
+              return;
+            }
+            (function() {
+              const listeners = new Set();
+              function notify(payload) {
+                listeners.forEach(function(listener) {
+                  try {
+                    listener(payload);
+                  } catch (error) {
+                    console.error('ideaBridge listener error', error);
+                  }
+                });
+                window.dispatchEvent(new MessageEvent('message', { data: payload }));
+              }
+              window.ideaBridge = {
+                __intellijHooked: true,
+                postMessage: function(message) {
+                  const payload = typeof message === 'string' ? message : JSON.stringify(message);
+                  ${jsBridge.inject("payload")}
+                },
+                addMessageListener: function(listener) {
+                  if (typeof listener !== 'function') {
+                    return function() {};
+                  }
+                  listeners.add(listener);
+                  return function() { listeners.delete(listener); };
+                },
+                _emit: function(message) {
+                  notify(message);
+                }
+              };
+            })();
         """.trimIndent()
         frame.executeJavaScript(script, frame.url, 0)
     }
 
     private fun handleIncomingMessage(payload: String) {
         val message = gson.fromJson(payload, IncomingMessage::class.java)
+        logger.debug("Incoming message: $message")
         when (message.type) {
             "webviewReady" -> {
                 isWebviewReady = true
+                val count = pendingMessages.size
+                logger.info("Webview signaled ready; flushing $count pending messages")
+                logService.log("NcViewerPanel: webviewReady pending=$count")
                 flushPendingMessages()
                 currentEditor?.let { sendLoadGCode(it) }
             }
 
             "highlightLine" -> message.lineNumber?.let { moveCaretToLine(it) }
+            "bridgeDebug" -> message.debugMessage?.let { logService.log("Webview debug: $it") }
+            else -> logger.warn("Unknown message type: ${message.type}")
         }
     }
 
@@ -161,14 +212,19 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private fun sendMessage(message: NcViewerMessage) {
         val json = gson.toJson(message)
         if (isWebviewReady) {
+            logger.debug("Dispatching message immediately: ${message.type}")
+            logService.log("Dispatching message ${message.type}")
             dispatchToWebview(json)
         } else {
+            logger.debug("Queueing message while webview not ready: ${message.type}")
+            logService.log("Queue message ${message.type}")
             pendingMessages += json
         }
     }
 
     private fun flushPendingMessages() {
         if (pendingMessages.isEmpty()) return
+        logger.debug("Flushing ${pendingMessages.size} pending messages")
         pendingMessages.forEach { dispatchToWebview(it) }
         pendingMessages.clear()
     }
@@ -176,8 +232,10 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private fun dispatchToWebview(jsonPayload: String) {
         ApplicationManager.getApplication().invokeLater({
             if (project.isDisposed) return@invokeLater
+            logger.trace("Executing script payload (len=${jsonPayload.length})")
+            logService.log("Executing JS payload len=${jsonPayload.length}")
             browser.cefBrowser.mainFrame?.executeJavaScript(
-                "window.__ideaReceiveMessage($jsonPayload);",
+                "window.ideaBridge && window.ideaBridge._emit($jsonPayload);",
                 browser.cefBrowser.url,
                 0,
             )
@@ -185,6 +243,7 @@ class NcViewerPanel(private val project: Project) : Disposable {
     }
 
     private fun detachListeners() {
+        logger.debug("Detaching editor listeners")
         caretListener?.let { listener ->
             currentEditor?.caretModel?.removeCaretListener(listener)
         }
@@ -200,6 +259,7 @@ class NcViewerPanel(private val project: Project) : Disposable {
         detachListeners()
         jsBridge.dispose()
         browser.dispose()
+        logger.info("NcViewerPanel disposed")
     }
 
     private data class NcViewerMessage(
@@ -216,40 +276,10 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private data class IncomingMessage(
         val type: String,
         val lineNumber: Int? = null,
+        val debugMessage: String? = null,
     )
 
     companion object {
-        private val BRIDGE_SNIPPET = """
-            <script>
-            if (typeof acquireVsCodeApi !== "function") {
-              window.__ideaBridgeQueue = [];
-              window.__ideaBridgePost = null;
-              window.__ideaSetBridge = function (postFn) {
-                window.__ideaBridgePost = postFn;
-                window.__ideaFlushBridge();
-              };
-              window.__ideaFlushBridge = function () {
-                if (!window.__ideaBridgePost) {
-                  return;
-                }
-                while (window.__ideaBridgeQueue.length) {
-                  const message = window.__ideaBridgeQueue.shift();
-                  window.__ideaBridgePost(message);
-                }
-              };
-              window.acquireVsCodeApi = function () {
-                return {
-                  postMessage: function (message) {
-                    if (window.__ideaBridgePost) {
-                      window.__ideaBridgePost(message);
-                    } else {
-                      window.__ideaBridgeQueue.push(message);
-                    }
-                  }
-                };
-              };
-            }
-            </script>
-        """.trimIndent()
+        private const val BRIDGE_SNIPPET = ""
     }
 }

@@ -10,17 +10,30 @@
     <extensions defaultExtensionNs="com.intellij">
         <applicationService serviceImplementation="com.ncviewer.idea.settings.NcViewerSettings"/>
 
+        <projectService serviceImplementation="com.ncviewer.idea.log.NcViewerLogService"/>
+
         <fileType
                 name="G-code"
                 language="GCode"
                 implementationClass="com.ncviewer.idea.lang.NcFileType"
                 extensions="nc;gcode;cnc"/>
 
+        <syntaxHighlighterFactory
+                language="GCode"
+                implementationClass="com.ncviewer.idea.highlight.NcSyntaxHighlighterFactory"/>
+
+        <colorSettingsPage implementationClass="com.ncviewer.idea.highlight.NcColorSettingsPage"/>
+
         <toolWindow
                 id="NC Viewer"
                 anchor="right"
                 icon="AllIcons.Actions.Preview"
                 factoryClass="com.ncviewer.idea.toolwindow.NcViewerToolWindowFactory"/>
+
+        <toolWindow
+                id="NC Viewer Log"
+                anchor="bottom"
+                factoryClass="com.ncviewer.idea.log.NcViewerLogToolWindowFactory"/>
     </extensions>
 
     <actions>

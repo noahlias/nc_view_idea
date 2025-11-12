@@ -24,8 +24,15 @@ val localJbrHome = localIdePath
             .firstOrNull(File::exists)
     }
 
-if (localJbrHome != null && System.getProperty("org.gradle.java.installations.paths").isNullOrBlank()) {
-    System.setProperty("org.gradle.java.installations.paths", localJbrHome.absolutePath)
+val envGradleJavaHome = System.getenv("ORG_GRADLE_JAVA_HOME")
+    ?.takeIf { it.isNotBlank() }
+    ?.let(::File)
+    ?.takeIf(File::exists)
+
+if (System.getProperty("org.gradle.java.installations.paths").isNullOrBlank()) {
+    listOfNotNull(envGradleJavaHome?.absolutePath, localJbrHome?.absolutePath)
+        .takeIf { it.isNotEmpty() }
+        ?.let { System.setProperty("org.gradle.java.installations.paths", it.joinToString(File.pathSeparator)) }
 }
 
 repositories {

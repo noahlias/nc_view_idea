@@ -8,9 +8,9 @@
   <style>
      html,
      body {
-      background-color: var(--vscode-editor-background);
-      color: var(--vscode-editor-foreground);
-      font-family: var(--vscode-font-family, sans-serif);
+      background-color: #282a36;
+      color: #f8f8f2;
+      font-family: var(--idea-font-family, var(--vscode-font-family, 'JetBrains Mono', sans-serif));
       margin: 0;
       padding: 0;
       height: 100%;
@@ -25,8 +25,8 @@
     .viewer {
       width: 100%;
       height: 100%;
-      background: var(--vscode-editor-background);
-      color: var(--vscode-editor-foreground);
+      background: #282a36;
+      color: #f8f8f2;
       position: relative;
       display: flex;
       flex-direction: column;
@@ -42,13 +42,13 @@
       flex-direction: column;
       align-items: flex-start;
       padding: 8px 12px;
-      background-color: var(--vscode-sideBar-background);
-      color: var(--vscode-editorWidget-foreground);
-      font-family: var(--vscode-editor-font-family, monospace);
+      background-color: rgba(40, 42, 54, 0.9);
+      color: #f8f8f2;
+      font-family: var(--idea-font-family, 'JetBrains Mono', monospace);
       font-size: 0.85rem;
-      border: 1px solid var(--vscode-editorWidget-border);
+      border: 1px solid #44475a;
       border-radius: 4px;
-      box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
     }
 
     .viewer-info span {
@@ -62,7 +62,7 @@
       transform: translateX(-50%);
       width: 60%;
       height: 10px;
-      background-color: var(--vscode-input-background);
+      background-color: #44475a;
       -webkit-appearance: none;
       appearance: none;
       border-radius: 5px;
@@ -75,8 +75,8 @@
       appearance: none;
       width: 20px;
       height: 20px;
-      background-color: var(--vscode-button-background);
-      border: 1px solid var(--vscode-button-border, var(--vscode-button-background));
+      background-color: #bd93f9;
+      border: 1px solid #f8f8f2;
       border-radius: 50%;
       cursor: pointer;
     }
@@ -84,8 +84,8 @@
     #viewerSlider::-moz-range-thumb {
       width: 20px;
       height: 20px;
-      background-color: var(--vscode-button-background);
-      border: 1px solid var(--vscode-button-border, var(--vscode-button-background));
+      background-color: #bd93f9;
+      border: 1px solid #f8f8f2;
       border-radius: 50%;
       cursor: pointer;
     }
@@ -122,7 +122,50 @@
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
     // VS Code API for receiving file data
-    const vscode = acquireVsCodeApi();
+    let ideaBridge = null;
+    const bridgeLogQueue = [];
+
+    const emitBridgeLog = (text) => {
+      const message = `[bridge] ${text}`;
+      console.debug(message);
+      if (ideaBridge) {
+        try {
+          ideaBridge.postMessage({ type: "bridgeDebug", debugMessage: message });
+        } catch (error) {
+          console.error("Failed to post debug message", error);
+        }
+      } else {
+        bridgeLogQueue.push(message);
+      }
+    };
+
+    const flushBridgeLogQueue = () => {
+      if (!ideaBridge) return;
+      while (bridgeLogQueue.length) {
+        const message = bridgeLogQueue.shift();
+        try {
+          ideaBridge.postMessage({ type: "bridgeDebug", debugMessage: message });
+        } catch (error) {
+          console.error("Failed to flush debug message", error);
+          break;
+        }
+      }
+    };
+
+    const waitForIdeaBridge = (callback) => {
+      if (
+        window.ideaBridge &&
+        typeof window.ideaBridge.postMessage === "function" &&
+        typeof window.ideaBridge.addMessageListener === "function"
+      ) {
+        ideaBridge = window.ideaBridge;
+        flushBridgeLogQueue();
+        emitBridgeLog("ideaBridge connected");
+        callback();
+      } else {
+        setTimeout(() => waitForIdeaBridge(callback), 50);
+      }
+    };
 
     const viewer = document.getElementById("viewer");
     const scene = new THREE.Scene();
@@ -176,33 +219,55 @@
     let lineSegmentsMesh = null;
     let size = 0;
 
-    window.addEventListener("message", (event) => {
-      const { type, ncText, lineNumber, settings } = event.data;
-      const excludeCodes = settings?.excludeCodes || [
-        "G10",
-        "G30",
-        "G53",
-        "G90",
-      ];
-
-      switch (type) {
-        case "loadGCode":
-          if (ncText !== undefined) {
-            processGCode(ncText, excludeCodes, true);
+    const registerBridgeListeners = () => {
+      ideaBridge.addMessageListener((eventData) => {
+        let payload = eventData;
+        if (typeof payload === "string") {
+          try {
+            payload = JSON.parse(payload);
+          } catch (error) {
+            console.error("Failed to parse incoming message", error, payload);
+            emitBridgeLog("failed to parse incoming payload");
+            return;
           }
-          break;
+        }
 
-        case "cursorPositionChanged":
-          highlightLineInViewer(lineNumber);
-          break;
+        if (!payload) {
+          emitBridgeLog("incoming payload missing");
+          return;
+        }
 
-        case "contentChanged":
-          if (ncText !== undefined) {
-            processGCode(ncText, excludeCodes, false);
-          }
-          break;
-      }
-    });
+        const { type, ncText, lineNumber, settings } = payload;
+        emitBridgeLog(`incoming message type=${type}`);
+        const excludeCodes = settings?.excludeCodes || [
+          "G10",
+          "G30",
+          "G53",
+          "G90",
+        ];
+
+        switch (type) {
+          case "loadGCode":
+            if (ncText !== undefined) {
+              emitBridgeLog(`loadGCode received length=${ncText.length}`);
+              processGCode(ncText, excludeCodes, true);
+            }
+            break;
+
+          case "cursorPositionChanged":
+            emitBridgeLog(`cursorPositionChanged ${lineNumber}`);
+            highlightLineInViewer(lineNumber);
+            break;
+
+          case "contentChanged":
+            if (ncText !== undefined) {
+              emitBridgeLog(`contentChanged length=${ncText.length}`);
+              processGCode(ncText, excludeCodes, false);
+            }
+            break;
+        }
+      });
+    };
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     let isMouseDown = false;
@@ -246,10 +311,13 @@
               const movement = movements[segmentIndex + 1];
               const lineIdx = movement.lineNumber || 0;
 
-              vscode.postMessage({
-                type: "highlightLine",
-                lineNumber: lineIdx,
-              });
+              emitBridgeLog(`click highlight line=${lineIdx}`);
+              if (ideaBridge) {
+                ideaBridge.postMessage({
+                  type: "highlightLine",
+                  lineNumber: lineIdx,
+                });
+              }
 
               highlightLineSegmentsForLine(lineIdx);
               slider.value = segmentIndex;
@@ -411,26 +479,32 @@
 
     const slider = document.getElementById("viewerSlider");
 
-    slider.addEventListener("input", (event) => {
-      const value = parseInt(event.target.value, 10);
+    const registerSliderHandler = () => {
+      slider.addEventListener("input", (event) => {
+        const value = parseInt(event.target.value, 10);
 
-      if (value >= 0 && value < movements.length - 1) {
-        const startIdx = value;
-        const endIdx = value;
-        selectLineSegments(startIdx, endIdx);
-        // 获取对应的行号并通知VS Code
-        if (
-          movements[value + 1] &&
-          movements[value + 1].lineNumber !== undefined
-        ) {
-          const lineNumber = movements[value + 1].lineNumber;
-          vscode.postMessage({
-            type: "highlightLine",
-            lineNumber: lineNumber,
-          });
+        if (value >= 0 && value < movements.length - 1) {
+          const startIdx = value;
+          const endIdx = value;
+          selectLineSegments(startIdx, endIdx);
+          if (
+            movements[value + 1] &&
+            movements[value + 1].lineNumber !== undefined
+          ) {
+            const lineNumber = movements[value + 1].lineNumber;
+            emitBridgeLog(`slider highlight line=${lineNumber}`);
+            if (ideaBridge) {
+              ideaBridge.postMessage({
+                type: "highlightLine",
+                lineNumber: lineNumber,
+              });
+            } else {
+              emitBridgeLog("ideaBridge missing when sending highlightLine");
+            }
+          }
         }
-      }
-    });
+      });
+    };
 
     function addAxisLines(box) {
       const marginFactor = 0.2;
@@ -540,11 +614,19 @@
       }
     }
 
+    const DRACULA_COLORS = {
+      feed: 0x50fa7b,
+      rapid: 0xff5555,
+      selected: 0xff79c6,
+      afterSelected: 0x6272a4,
+      background: 0x282a36,
+    };
+
     let colors = {
-      selectedColor: 0xffffff,
-      feedColor: 0x39ff14,
-      rapidColor: 0xff0000,
-      afterSelColor: 0xa6a6a6,
+      selectedColor: DRACULA_COLORS.selected,
+      feedColor: DRACULA_COLORS.feed,
+      rapidColor: DRACULA_COLORS.rapid,
+      afterSelColor: DRACULA_COLORS.afterSelected,
     };
 
     function animate() {
@@ -574,26 +656,15 @@
     });
 
     function update3DViewColors() {
-      const computedStyles = getComputedStyle(document.body);
-      const tempColor = new THREE.Color();
-      const getHexFromVar = (varName, fallbackColor) => {
-        const colorString = computedStyles.getPropertyValue(varName).trim();
-        if (!colorString) return fallbackColor;
-        return tempColor.set(colorString).getHex();
-      };
-
-      // Overwrite the global colors object for the 3D view
-      colors.feedColor = getHexFromVar('--vscode-editor-foreground', 0x000000);
-      colors.rapidColor = getHexFromVar('--vscode-gitDecoration-modifiedResourceForeground', 0x0000ff);
-      colors.selectedColor = getHexFromVar('--vscode-editor-selectionBackground', 0x888888);
-      colors.afterSelColor = getHexFromVar('--vscode-editor-inactiveSelectionBackground', 0x444444);
+      colors.feedColor = DRACULA_COLORS.feed;
+      colors.rapidColor = DRACULA_COLORS.rapid;
+      colors.selectedColor = DRACULA_COLORS.selected;
+      colors.afterSelColor = DRACULA_COLORS.afterSelected;
 
       startPointMaterial.color.setHex(colors.feedColor);
       endPointMaterial.color.setHex(colors.rapidColor);
 
-      // Overwrite the renderer background
-      const bgColor = computedStyles.getPropertyValue('--vscode-editor-background').trim();
-      renderer.setClearColor(new THREE.Color(bgColor));
+      renderer.setClearColor(DRACULA_COLORS.background);
 
       // Redraw lines with new colors if they exist
       if (lineSegmentsMesh) {
@@ -620,26 +691,34 @@
     });
     observer.observe(document.body, { attributes: true });
 
-    function runWhenStylesAreReady(callback) {
-      const check = () => {
-        const styles = getComputedStyle(document.body);
-        const foreground = styles.getPropertyValue('--vscode-editor-foreground');
-        const background = styles.getPropertyValue('--vscode-editor-background');
-        if (foreground.trim() && background.trim()) {
-          callback();
-        } else {
-          setTimeout(check, 100);
-        }
-      };
-      check();
+    function initializeViewer() {
+      emitBridgeLog("initializeViewer invoked");
+      update3DViewColors();
+      resetCamera();
+      if (ideaBridge) {
+        ideaBridge.postMessage({ type: "webviewReady" });
+        emitBridgeLog("webviewReady posted");
+      } else {
+        emitBridgeLog("ideaBridge missing during initializeViewer");
+      }
+      animate();
     }
 
-    runWhenStylesAreReady(() => {
-      update3DViewColors(); // Apply VS Code theme to 3D view
-      resetCamera();
-      vscode.postMessage({ type: "webviewReady" });
-      animate();
-    });
+    const startOnceBridgeReady = () => {
+      const start = () => {
+        registerBridgeListeners();
+        registerSliderHandler();
+        initializeViewer();
+      };
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start, { once: true });
+      } else {
+        start();
+      }
+    };
+
+    waitForIdeaBridge(startOnceBridgeReady);
 
   </script>
 </body>

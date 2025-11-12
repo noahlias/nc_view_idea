@@ -58,6 +58,7 @@ java {
 dependencies {
     implementation("com.google.code.gson:gson:2.11.0")
     testImplementation(kotlin("test"))
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
     intellijPlatform {
         javaCompiler()

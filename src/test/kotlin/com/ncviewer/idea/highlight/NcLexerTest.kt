@@ -24,7 +24,8 @@ class NcLexerTest {
         while (true) {
             val type = lexer.tokenType ?: break
             if (type != TokenType.WHITE_SPACE) {
-                tokens += "${'$'}type:${'$'}{lexer.bufferSequence.subSequence(lexer.tokenStart, lexer.tokenEnd)}"
+                val text = lexer.bufferSequence.subSequence(lexer.tokenStart, lexer.tokenEnd)
+                tokens += "${type}:${text}"
             }
             lexer.advance()
         }

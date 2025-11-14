@@ -5,6 +5,7 @@ import com.google.gson.annotations.SerializedName
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.event.CaretEvent
@@ -45,6 +46,7 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private var currentEditor: Editor? = null
     private var caretListener: CaretListener? = null
     private var documentListener: DocumentListener? = null
+    private var listenerDocument: Document? = null
     private var isWebviewReady = false
 
     init {
@@ -91,7 +93,10 @@ class NcViewerPanel(private val project: Project) : Disposable {
                     ),
                 )
             }
-        }.also { editor.document.addDocumentListener(it, this) }
+        }.also { listener ->
+            listenerDocument = editor.document
+            editor.document.addDocumentListener(listener)
+        }
 
         sendLoadGCode(editor)
     }
@@ -218,9 +223,14 @@ class NcViewerPanel(private val project: Project) : Disposable {
         caretListener = null
 
         documentListener?.let { listener ->
-            currentEditor?.document?.removeDocumentListener(listener)
+            try {
+                listenerDocument?.removeDocumentListener(listener)
+            } catch (t: Throwable) {
+                logger.warn("Failed detaching document listener", t)
+            }
         }
         documentListener = null
+        listenerDocument = null
         currentEditor = null
         isWebviewReady = false
     }

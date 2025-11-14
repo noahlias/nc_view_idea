@@ -346,6 +346,7 @@ declare global {
   }
 
   function processGCode(parsedMovements: typeof movements, isInitialLoad = true) {
+    stopPlayback(true);
     clearSceneLines();
 
     movements = parsedMovements;
@@ -400,6 +401,7 @@ declare global {
     slider.disabled = segmentCount === 0;
     slider.value = "0";
     slider.max = segmentCount === 0 ? "0" : String(segmentCount - 1);
+    setPlaybackControlsEnabled(segmentCount > 0);
 
     if (segmentCount > 0) {
       selectLineSegments(0, 0);
@@ -413,8 +415,21 @@ declare global {
   }
 
   const slider = document.getElementById("viewerSlider") as HTMLInputElement;
+  const playToggleButton = document.getElementById("playToggle") as HTMLButtonElement;
+  const playSpeedInput = document.getElementById("playSpeed") as HTMLInputElement;
+  const playSpeedValue = document.getElementById("playSpeedValue") as HTMLElement;
+
+  let playbackAnimationId: number | null = null;
+  let playbackAccumulator = 0;
+  let playbackLastTimestamp = 0;
+  let isPlaybackActive = false;
 
   const registerSliderHandler = () => {
+    const haltPlayback = () => stopPlayback(false);
+    slider.addEventListener("pointerdown", haltPlayback);
+    slider.addEventListener("touchstart", haltPlayback, { passive: true });
+    slider.addEventListener("keydown", haltPlayback);
+
     slider.addEventListener("input", (event) => {
       const value = parseInt((event.target as HTMLInputElement).value, 10);
       const segmentCount = Math.max(0, movements.length - 1);
@@ -435,6 +450,118 @@ declare global {
       }
     });
   };
+
+  function registerPlaybackControls() {
+    playToggleButton.addEventListener("click", () => {
+      if (isPlaybackActive) {
+        stopPlayback();
+      } else {
+        const max = parseInt(slider.max, 10);
+        const current = parseInt(slider.value, 10) || 0;
+        if (!Number.isNaN(max) && current >= max) {
+          slider.value = "0";
+          slider.dispatchEvent(new Event("input"));
+        }
+        startPlayback();
+      }
+    });
+
+    playSpeedInput.addEventListener("input", () => {
+      updatePlaybackSpeedLabel();
+    });
+
+    updatePlaybackSpeedLabel();
+    setPlaybackControlsEnabled(false);
+  }
+
+  function updatePlaybackSpeedLabel() {
+    const raw = Number(playSpeedInput.value);
+    const safe = Number.isFinite(raw) && raw > 0 ? raw : 1;
+    playSpeedValue.textContent = `${safe.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}x`;
+  }
+
+  function getPlaybackSpeed(): number {
+    const value = Number(playSpeedInput.value);
+    return Number.isFinite(value) && value > 0 ? value : 1;
+  }
+
+  function setPlaybackControlsEnabled(enabled: boolean) {
+    playToggleButton.disabled = !enabled;
+    playSpeedInput.disabled = !enabled;
+    if (!enabled) {
+      stopPlayback();
+    }
+  }
+
+  function startPlayback() {
+    if (movements.length < 2 || slider.disabled) return;
+    if (isPlaybackActive) return;
+    isPlaybackActive = true;
+    playToggleButton.textContent = "Pause";
+    playToggleButton.setAttribute("aria-pressed", "true");
+    playbackAccumulator = 0;
+    playbackLastTimestamp = 0;
+    if (playbackAnimationId !== null) {
+      cancelAnimationFrame(playbackAnimationId);
+    }
+    playbackAnimationId = requestAnimationFrame(playbackStep);
+  }
+
+  function stopPlayback(resetAccumulators = true) {
+    if (playbackAnimationId !== null) {
+      cancelAnimationFrame(playbackAnimationId);
+      playbackAnimationId = null;
+    }
+    if (!isPlaybackActive && !resetAccumulators) {
+      return;
+    }
+    isPlaybackActive = false;
+    playToggleButton.textContent = "Play";
+    playToggleButton.setAttribute("aria-pressed", "false");
+    if (resetAccumulators) {
+      playbackAccumulator = 0;
+      playbackLastTimestamp = 0;
+    }
+  }
+
+  function playbackStep(timestamp: number) {
+    if (!isPlaybackActive) {
+      return;
+    }
+    if (!playbackLastTimestamp) {
+      playbackLastTimestamp = timestamp;
+    }
+    const delta = timestamp - playbackLastTimestamp;
+    playbackLastTimestamp = timestamp;
+
+    const segmentsPerSecond = getPlaybackSpeed();
+    playbackAccumulator += (delta / 1000) * segmentsPerSecond;
+
+    if (playbackAccumulator >= 1) {
+      const advance = Math.floor(playbackAccumulator);
+      playbackAccumulator -= advance;
+      advanceSliderBy(advance);
+    }
+
+    playbackAnimationId = requestAnimationFrame(playbackStep);
+  }
+
+  function advanceSliderBy(steps: number) {
+    if (steps <= 0) return;
+    const max = parseInt(slider.max, 10);
+    if (Number.isNaN(max)) return;
+    const current = parseInt(slider.value, 10) || 0;
+    const next = Math.min(max, current + steps);
+
+    if (next !== current) {
+      slider.value = String(next);
+      slider.dispatchEvent(new Event("input"));
+    }
+
+    if (next >= max) {
+      stopPlayback();
+    }
+  }
 
   function addAxisLines(box: THREE.Box3) {
     const marginFactor = 0.2;
@@ -597,6 +724,7 @@ declare global {
     const start = () => {
       registerBridgeListeners();
       registerSliderHandler();
+      registerPlaybackControls();
       initializeViewer();
     };
 

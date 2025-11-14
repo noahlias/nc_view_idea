@@ -5,7 +5,6 @@ import com.google.gson.annotations.SerializedName
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.event.CaretEvent
@@ -16,6 +15,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBuilder
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.Disposer
 import com.intellij.util.ui.JBUI
 import com.ncviewer.idea.bridge.NcViewerHttpBridge
 import com.ncviewer.idea.log.NcViewerLogConfig
@@ -46,7 +46,7 @@ class NcViewerPanel(private val project: Project) : Disposable {
     private var currentEditor: Editor? = null
     private var caretListener: CaretListener? = null
     private var documentListener: DocumentListener? = null
-    private var listenerDocument: Document? = null
+    private var documentListenerDisposable: Disposable? = null
     private var isWebviewReady = false
 
     init {
@@ -94,8 +94,10 @@ class NcViewerPanel(private val project: Project) : Disposable {
                 )
             }
         }.also { listener ->
-            listenerDocument = editor.document
-            editor.document.addDocumentListener(listener)
+            documentListenerDisposable?.let { Disposer.dispose(it) }
+            val disposable = Disposer.newDisposable("NcViewerDocumentListener")
+            documentListenerDisposable = disposable
+            editor.document.addDocumentListener(listener, disposable)
         }
 
         sendLoadGCode(editor)
@@ -222,15 +224,15 @@ class NcViewerPanel(private val project: Project) : Disposable {
         }
         caretListener = null
 
-        documentListener?.let { listener ->
+        documentListenerDisposable?.let { disposable ->
             try {
-                listenerDocument?.removeDocumentListener(listener)
+                Disposer.dispose(disposable)
             } catch (t: Throwable) {
                 logger.warn("Failed detaching document listener", t)
             }
         }
         documentListener = null
-        listenerDocument = null
+        documentListenerDisposable = null
         currentEditor = null
         isWebviewReady = false
     }

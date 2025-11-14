@@ -12,3 +12,5 @@ src/main/resources/ncviewer/media/bundle.js
 .intellijPlatform
 
 .DS_Store
+
+*.db

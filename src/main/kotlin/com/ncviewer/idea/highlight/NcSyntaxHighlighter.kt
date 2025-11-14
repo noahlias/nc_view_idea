@@ -1,13 +1,11 @@
 package com.ncviewer.idea.highlight
 
 import com.intellij.lexer.Lexer
+import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
 import com.intellij.openapi.editor.HighlighterColors
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.fileTypes.SyntaxHighlighterBase
 import com.intellij.psi.TokenType
-import com.intellij.openapi.editor.markup.TextAttributes
-import java.awt.Color
-import java.awt.Font
 
 class NcSyntaxHighlighter : SyntaxHighlighterBase() {
 
@@ -27,23 +25,23 @@ class NcSyntaxHighlighter : SyntaxHighlighterBase() {
     companion object {
         private val COMMENT = TextAttributesKey.createTextAttributesKey(
             "NC_COMMENT",
-            TextAttributes(Color(0x6B7B80), null, null, null, Font.ITALIC),
+            DefaultLanguageHighlighterColors.LINE_COMMENT,
         )
         private val COMMAND = TextAttributesKey.createTextAttributesKey(
             "NC_COMMAND",
-            TextAttributes(Color(0xE38F24), null, null, null, Font.BOLD),
+            DefaultLanguageHighlighterColors.KEYWORD,
         )
         private val COORDINATE = TextAttributesKey.createTextAttributesKey(
             "NC_COORDINATE",
-            TextAttributes(Color(0x2F9C95), null, null, null, Font.PLAIN),
+            DefaultLanguageHighlighterColors.PARAMETER,
         )
         private val NUMBER = TextAttributesKey.createTextAttributesKey(
             "NC_NUMBER",
-            TextAttributes(Color(0xB5BDC1), null, null, null, Font.PLAIN),
+            DefaultLanguageHighlighterColors.NUMBER,
         )
         private val WORD = TextAttributesKey.createTextAttributesKey(
             "NC_WORD",
-            TextAttributes(Color(0x939EA4), null, null, null, Font.PLAIN),
+            DefaultLanguageHighlighterColors.IDENTIFIER,
         )
         private val BAD = TextAttributesKey.createTextAttributesKey(
             "NC_BAD_CHARACTER",

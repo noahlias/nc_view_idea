@@ -44,14 +44,12 @@ class NcLexer : LexerBase() {
         }
 
         tokenStart = tokenEnd
-        val c = buffer[tokenStart]
-
         when {
-            c == '(' -> consumeComment()
-            c.isWhitespace() -> consumeWhitespace()
-            isCommandLetter(c) -> consumeCommand()
-            isCoordinateLetter(c) -> consumeCoordinate()
-            c.isDigit() || c == '-' || c == '+' -> consumeNumber()
+            matchCommentStart() -> consumeComment()
+            matchWhitespace() -> consumeWhitespace()
+            matchCommandStart() -> consumeCommand()
+            matchCoordinateStart() -> consumeCoordinate()
+            matchNumberStart() -> consumeNumber()
             else -> consumeWord()
         }
     }
@@ -61,16 +59,27 @@ class NcLexer : LexerBase() {
     override fun getBufferEnd(): Int = bufferEnd
 
     private fun consumeComment() {
+        val startChar = buffer[tokenStart]
         var i = tokenStart + 1
-        while (i < bufferEnd) {
-            val ch = buffer[i]
-            if (ch == ')' || ch == '\n' || ch == '\r') {
-                if (ch == ')') {
-                    i++
+        if (startChar == '(') {
+            while (i < bufferEnd) {
+                val ch = buffer[i]
+                if (ch == ')' || ch == '\n' || ch == '\r') {
+                    if (ch == ')') {
+                        i++
+                    }
+                    break
                 }
-                break
+                i++
             }
-            i++
+        } else {
+            while (i < bufferEnd) {
+                val ch = buffer[i]
+                if (ch == '\n' || ch == '\r') {
+                    break
+                }
+                i++
+            }
         }
         tokenEnd = min(i, bufferEnd)
         tokenType = NcTokenTypes.COMMENT
@@ -139,18 +148,52 @@ class NcLexer : LexerBase() {
 
     private fun Char.isWhitespace(): Boolean = this == ' ' || this == '\t' || this == '\n' || this == '\r'
 
-    private fun isCommandLetter(ch: Char): Boolean {
-        return when (ch.uppercaseChar()) {
+    private fun matchCommentStart(): Boolean {
+        val ch = buffer[tokenStart]
+        return ch == '(' || ch == ';'
+    }
+
+    private fun matchWhitespace(): Boolean = buffer[tokenStart].isWhitespace()
+
+    private fun matchCommandStart(): Boolean =
+        isCommandLetter(buffer[tokenStart]) && hasNumericPayload(tokenStart + 1)
+
+    private fun matchCoordinateStart(): Boolean =
+        isCoordinateLetter(buffer[tokenStart]) && hasCoordinatePayload(tokenStart + 1)
+
+    private fun matchNumberStart(): Boolean {
+        val c = buffer[tokenStart]
+        if (c.isDigit()) return true
+        if (c == '-' || c == '+') {
+            val next = tokenStart + 1
+            if (next < bufferEnd) {
+                val nextChar = buffer[next]
+                return nextChar.isDigit() || nextChar == '.'
+            }
+        }
+        if (c == '.' && tokenStart + 1 < bufferEnd && buffer[tokenStart + 1].isDigit()) return true
+        return false
+    }
+
+    private fun isCommandLetter(ch: Char): Boolean =
+        when (ch.uppercaseChar()) {
             'G', 'M', 'T' -> true
             else -> false
         }
-    }
 
-    private fun isCoordinateLetter(ch: Char): Boolean {
-        return when (ch.uppercaseChar()) {
+    private fun isCoordinateLetter(ch: Char): Boolean =
+        when (ch.uppercaseChar()) {
             'X', 'Y', 'Z', 'I', 'J', 'K', 'A', 'B', 'C', 'F', 'S', 'P', 'R', 'E' -> true
             else -> false
         }
+
+    private fun hasNumericPayload(index: Int): Boolean =
+        index < bufferEnd && buffer[index].isDigit()
+
+    private fun hasCoordinatePayload(index: Int): Boolean {
+        if (index >= bufferEnd) return false
+        val ch = buffer[index]
+        return ch.isDigit() || ch == '.' || ch == '-' || ch == '+'
     }
 
     private fun logToken() {

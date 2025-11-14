@@ -18,12 +18,13 @@
                 implementationClass="com.ncviewer.idea.lang.NcFileType"
                 extensions="nc;gcode;cnc"/>
 
-        <syntaxHighlighterFactory
+        <lang.syntaxHighlighterFactory
                 language="GCode"
                 implementationClass="com.ncviewer.idea.highlight.NcSyntaxHighlighterFactory"/>
-        <syntaxHighlighterFactory
-                filetype="G-code"
-                implementationClass="com.ncviewer.idea.highlight.NcSyntaxHighlighterFactory"/>
+
+        <lang.parserDefinition
+                language="GCode"
+                implementationClass="com.ncviewer.idea.lang.NcParserDefinition"/>
 
         <colorSettingsPage implementationClass="com.ncviewer.idea.highlight.NcColorSettingsPage"/>
 

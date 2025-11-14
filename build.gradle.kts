@@ -37,6 +37,16 @@ if (System.getProperty("org.gradle.java.installations.paths").isNullOrBlank()) {
         ?.let { System.setProperty("org.gradle.java.installations.paths", it.joinToString(File.pathSeparator)) }
 }
 
+val marketplaceToken = providers.environmentVariable("JETBRAINS_MARKETPLACE_TOKEN")
+val marketplaceChannels = providers.environmentVariable("JETBRAINS_MARKETPLACE_CHANNELS")
+    .map { raw ->
+        raw.split(",")
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .ifEmpty { listOf("default") }
+    }
+    .orElse(listOf("default"))
+
 repositories {
     mavenCentral()
     intellijPlatform {
@@ -139,5 +149,10 @@ intellijPlatform {
             name = "nc-view"
             email = "yygggg@foxmail.com"
         }
+    }
+
+    publishing {
+        token = marketplaceToken
+        channels = marketplaceChannels
     }
 }

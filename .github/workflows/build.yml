@@ -58,6 +58,14 @@ jobs:
           name: nc-viewer-idea
           path: build/distributions/*.zip
 
+      - name: Publish to JetBrains Marketplace
+        if: steps.build-mode.outputs.mode == 'release' && secrets.JETBRAINS_MARKETPLACE_TOKEN != ''
+        env:
+          ORG_GRADLE_JAVA_HOME: ${{ steps.setup-jdk.outputs.path }}
+          JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+          JETBRAINS_MARKETPLACE_CHANNELS: ${{ secrets.JETBRAINS_MARKETPLACE_CHANNELS }}
+        run: ./gradlew --stacktrace publishPlugin -Dncviewer.verboseLog=false
+
       - name: Publish GitHub release
         if: steps.build-mode.outputs.mode == 'release'
         uses: softprops/action-gh-release@v2

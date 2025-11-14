@@ -97,3 +97,20 @@ automatically falls back to downloading the matching IntelliJ distribution.
 ## Next Steps / TODO
 
 - Add a proper Settings/Preferences page to edit exclude-code lists.
+
+## Continuous Delivery
+
+Pushes to `main`/`master` run checks, while annotated tags trigger the release
+pipeline defined in `.github/workflows/build.yml`. On tag builds the workflow
+now:
+
+1. Builds the plugin ZIP via `./gradlew buildPlugin`.
+2. Publishes the artifact to the JetBrains Marketplace via
+   `./gradlew publishPlugin`.
+3. Uploads the same ZIP to the GitHub release for convenience.
+
+To enable Marketplace publishing, create a permanent token in your JetBrains
+Marketplace profile and add it as the repository secret
+`JETBRAINS_MARKETPLACE_TOKEN`. Optionally define
+`JETBRAINS_MARKETPLACE_CHANNELS` (comma-delimited; defaults to `default`) to
+steer which channel receives the upload.
